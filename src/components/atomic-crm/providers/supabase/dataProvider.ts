@@ -187,6 +187,54 @@ const dataProviderWithCustomMethods = {
 
     return passwordUpdated;
   },
+  async syncEmails(mode: "full" | "incremental" = "full", offset?: number) {
+    const authToken = import.meta.env.VITE_IMAP_SYNC_AUTH_TOKEN;
+    
+    // Build query parameters
+    const params = new URLSearchParams();
+    params.set("mode", mode);
+    if (offset) {
+      params.set("offset", offset.toString());
+    }
+    params.set("batchSize", "50"); // Process 50 emails per batch
+    
+    // Get user session token if available
+    const session = await supabase.auth.getSession();
+    const sessionToken = session.data.session?.access_token;
+    
+    // Use the function URL with query params
+    const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/imap-sync?${params.toString()}`;
+    
+    const headers: HeadersInit = {
+      "Content-Type": "application/json",
+      "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
+    };
+    
+    // Add auth token (prefer custom token, fallback to session token)
+    if (authToken) {
+      headers["Authorization"] = `Bearer ${authToken}`;
+    } else if (sessionToken) {
+      headers["Authorization"] = `Bearer ${sessionToken}`;
+    }
+    
+    const response = await fetch(functionUrl, {
+      method: "POST",
+      headers,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to sync emails: ${errorText}`);
+    }
+
+    const data = await response.json();
+
+    if (!data.success) {
+      throw new Error(data.errors?.join(", ") || "Failed to sync emails");
+    }
+
+    return data;
+  },
   async unarchiveDeal(deal: Deal) {
     // get all deals where stage is the same as the deal to unarchive
     const { data: deals } = await baseDataProvider.getList<Deal>("deals", {

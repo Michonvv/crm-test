@@ -15,20 +15,39 @@ export const addNoteToContact = async ({
   lastName: string;
   noteContent: string;
 }) => {
-  const { data: sales, error: fetchSalesError } = await supabaseAdmin
+  // Try to find sales user by email
+  let { data: sales, error: fetchSalesError } = await supabaseAdmin
     .from("sales")
     .select("*")
     .eq("email", salesEmail)
     .neq("disabled", true)
     .maybeSingle();
+  
+  // If not found, use the first available sales user (for personal use)
+  if (!sales && !fetchSalesError) {
+    console.log(`Sales user not found for email ${salesEmail}, using first available user`);
+    const { data: allSales, error: fetchAllError } = await supabaseAdmin
+      .from("sales")
+      .select("*")
+      .neq("disabled", true)
+      .limit(1);
+    
+    if (fetchAllError || !allSales || allSales.length === 0) {
+      return new Response(
+        `Could not find any active sales users in database`,
+        { status: 500 },
+      );
+    }
+    sales = allSales[0];
+    console.log(`Using sales user: ${sales.email} (ID: ${sales.id})`);
+  }
+  
   if (fetchSalesError)
     return new Response(
       `Could not fetch sales from database, email: ${salesEmail}`,
       { status: 500 },
     );
   if (!sales) {
-    // Return a 403 to let Postmark know that it's no use to retry this request
-    // https://postmarkapp.com/developer/webhooks/inbound-webhook#errors-and-retries
     return new Response(
       `Unable to find (active) sales in database, email: ${salesEmail}`,
       { status: 403 },

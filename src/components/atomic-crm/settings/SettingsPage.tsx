@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { CircleX, Copy, Pencil, Save } from "lucide-react";
+import { CircleX, Copy, Pencil, Save, RefreshCw } from "lucide-react";
 import {
   Form,
   useDataProvider,
@@ -199,6 +199,20 @@ const SettingsForm = ({
           </CardContent>
         </Card>
       )}
+      <Card>
+        <CardContent>
+          <div className="space-y-4 justify-between">
+            <h2 className="text-xl font-semibold text-muted-foreground">
+              Email Sync
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Sync emails from your IMAP inbox. This will fetch unread emails
+              and add them as notes to contacts.
+            </p>
+            <EmailSyncButton />
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 };
@@ -250,6 +264,97 @@ const CopyPaste = () => {
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
+  );
+};
+
+const EmailSyncButton = () => {
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [progress, setProgress] = useState<{ processed: number; total: number } | null>(null);
+  const notify = useNotify();
+  const dataProvider = useDataProvider<CrmDataProvider>();
+
+  const syncBatch = async (mode: "full" | "incremental", offset?: number): Promise<{ processed: number; hasMore: boolean; nextOffset?: number; errors: number }> => {
+    const data = await dataProvider.syncEmails(mode, offset);
+    const processed = data?.processed?.length || 0;
+    const errors = data?.errors?.length || 0;
+    
+    return {
+      processed,
+      hasMore: data?.hasMore || false,
+      nextOffset: data?.nextOffset,
+      errors,
+    };
+  };
+
+  const handleSync = async () => {
+    setIsSyncing(true);
+    setProgress({ processed: 0, total: 0 });
+    
+    let totalProcessed = 0;
+    let totalErrors = 0;
+    let offset: number | undefined = undefined;
+    let hasMore = true;
+    let batchNumber = 0;
+
+    try {
+      // Manual sync: process ALL emails in batches
+      while (hasMore) {
+        batchNumber++;
+        console.log(`Processing batch ${batchNumber}...`);
+        
+        const result = await syncBatch("full", offset);
+        totalProcessed += result.processed;
+        totalErrors += result.errors;
+        hasMore = result.hasMore;
+        offset = result.nextOffset;
+        
+        setProgress({ 
+          processed: totalProcessed, 
+          total: totalProcessed + (hasMore ? 1000 : 0) // Estimate if we don't know total
+        });
+
+        // Small delay between batches to avoid overwhelming the server
+        if (hasMore) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+
+      if (totalErrors > 0) {
+        notify(
+          `Synced ${totalProcessed} emails with ${totalErrors} errors. Check console for details.`,
+          { type: "warning" },
+        );
+      } else {
+        notify(`Successfully synced ${totalProcessed} emails`, { type: "success" });
+      }
+    } catch (error) {
+      notify(`Failed to sync emails: ${error instanceof Error ? error.message : String(error)}`, {
+        type: "error",
+      });
+    } finally {
+      setIsSyncing(false);
+      setProgress(null);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <Button
+        type="button"
+        onClick={handleSync}
+        disabled={isSyncing}
+        variant="outline"
+        className="w-full"
+      >
+        <RefreshCw className={`h-4 w-4 mr-2 ${isSyncing ? "animate-spin" : ""}`} />
+        {isSyncing ? "Syncing..." : "Sync All Emails"}
+      </Button>
+      {progress && (
+        <p className="text-sm text-muted-foreground text-center">
+          Processed: {progress.processed} emails
+        </p>
+      )}
+    </div>
   );
 };
 
