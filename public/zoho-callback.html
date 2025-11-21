@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zoho OAuth Callback</title>
+</head>
+<body>
+    <script>
+        // Extract query parameters from the URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const code = urlParams.get('code');
+        const error = urlParams.get('error');
+        
+        // Redirect to hash-based route that react-admin can handle
+        if (code) {
+            window.location.href = `/#/zoho-callback?code=${encodeURIComponent(code)}${urlParams.toString().includes('location') ? '&' + urlParams.toString().split('&').filter(p => p.startsWith('location') || p.startsWith('accounts-server')).join('&') : ''}`;
+        } else if (error) {
+            window.location.href = `/#/zoho-callback?error=${encodeURIComponent(error)}`;
+        } else {
+            // No code or error, redirect to home
+            window.location.href = '/#/';
+        }
+    </script>
+    <p>Processing OAuth callback...</p>
+</body>
+</html>
+

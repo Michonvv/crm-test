@@ -155,3 +155,9 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 
 [functions.postmark]
 verify_jwt = false
+
+[functions.zoho-mail]
+verify_jwt = false
+
+[functions.zoho-oauth-callback]
+verify_jwt = false

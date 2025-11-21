@@ -75,6 +75,7 @@ export const DealsChart = memo(() => {
   }, [data]);
 
   if (isPending) return null; // FIXME return skeleton instead
+  if (!months.length) return null; // Prevent rendering if no data
   const range = months.reduce(
     (acc, month) => {
       acc.min = Math.min(acc.min, month.lost);

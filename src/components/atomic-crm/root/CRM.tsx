@@ -39,6 +39,7 @@ import {
 } from "./defaultConfiguration";
 import { i18nProvider } from "./i18nProvider";
 import { StartPage } from "../login/StartPage.tsx";
+import { ZohoMailCallback } from "../contacts/ZohoMailCallback";
 
 export type CRMProps = {
   dataProvider?: DataProvider;
@@ -142,10 +143,12 @@ export const CRM = ({
         {...rest}
       >
         <CustomRoutes noLayout>
-          <Route path={SignupPage.path} element={<SignupPage />} />
-          <Route path={SetPasswordPage.path} element={<SetPasswordPage />} />
+          {/* Zoho callback - handle both path-based (from OAuth) and hash-based (react-admin) */}
+          <Route path="zoho-callback" element={<ZohoMailCallback />} />
+          <Route path={SignupPage.path.replace("/", "")} element={<SignupPage />} />
+          <Route path={SetPasswordPage.path.replace("/", "")} element={<SetPasswordPage />} />
           <Route
-            path={ForgotPasswordPage.path}
+            path={ForgotPasswordPage.path.replace("/", "")}
             element={<ForgotPasswordPage />}
           />
         </CustomRoutes>

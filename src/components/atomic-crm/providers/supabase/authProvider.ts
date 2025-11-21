@@ -66,6 +66,13 @@ export const authProvider: AuthProvider = {
     ) {
       return;
     }
+    // Users are on the zoho-callback page, nothing to do (OAuth callback)
+    if (
+      window.location.pathname === "/zoho-callback" ||
+      window.location.hash.includes("#/zoho-callback")
+    ) {
+      return;
+    }
 
     const isInitialized = await getIsInitialized();
 

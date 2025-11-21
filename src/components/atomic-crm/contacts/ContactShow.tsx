@@ -9,6 +9,7 @@ import { NoteCreate, NotesIterator } from "../notes";
 import type { Contact } from "../types";
 import { Avatar } from "./Avatar";
 import { ContactAside } from "./ContactAside";
+import { ContactEmails } from "./ContactEmails";
 
 export const ContactShow = () => (
   <ShowBase>
@@ -57,6 +58,7 @@ const ContactShowContent = () => {
                 </ReferenceField>
               </div>
             </div>
+            <ContactEmails />
             <ReferenceManyField
               target="contact_id"
               reference="contactNotes"

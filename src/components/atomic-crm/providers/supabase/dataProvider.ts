@@ -235,6 +235,68 @@ const dataProviderWithCustomMethods = {
 
     return data;
   },
+  async getContactEmails(contactId: Identifier) {
+    // Get contact email addresses
+    const { data: contact, error: contactError } = await supabase
+      .from("contacts")
+      .select("email_jsonb")
+      .eq("id", contactId)
+      .single();
+
+    if (contactError || !contact) {
+      throw new Error("Contact not found");
+    }
+
+    // Extract email addresses from email_jsonb
+    const contactEmails =
+      contact.email_jsonb
+        ?.map((email: { email: string; type: string }) => email.email)
+        .filter((email: string) => email && email.trim()) || [];
+
+    if (contactEmails.length === 0) {
+      return { emails: [], count: 0 };
+    }
+
+    // Get user session token
+    const session = await supabase.auth.getSession();
+    const sessionToken = session.data.session?.access_token;
+
+    if (!sessionToken) {
+      throw new Error("Not authenticated");
+    }
+
+    // Call Zoho Mail edge function
+    const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/zoho-mail`;
+
+    const headers: HeadersInit = {
+      "Content-Type": "application/json",
+      "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
+      "Authorization": `Bearer ${sessionToken}`,
+    };
+
+    const response = await fetch(functionUrl, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        contactEmails,
+        limit: 50,
+        includeContent: false, // Only fetch content when needed (lazy loading)
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to fetch emails: ${errorText}`);
+    }
+
+    const data = await response.json();
+
+    if (!data.success) {
+      throw new Error(data.message || "Failed to fetch emails");
+    }
+
+    return data;
+  },
   async unarchiveDeal(deal: Deal) {
     // get all deals where stage is the same as the deal to unarchive
     const { data: deals } = await baseDataProvider.getList<Deal>("deals", {
