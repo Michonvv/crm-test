@@ -16,8 +16,7 @@
     "registry:build": "npx shadcn build",
     "registry:gen": "node ./scripts/generate-registry.mjs",
     "ghpages:deploy": "node ./scripts/ghpages-deploy.mjs",
-    "supabase:remote:init": "node ./scripts/supabase-remote-init.mjs",
-    "prepare": "husky"
+    "supabase:remote:init": "node ./scripts/supabase-remote-init.mjs"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",
@@ -91,7 +90,6 @@
     "gh-pages": "^6.3.0",
     "glob": "^11.0.3",
     "globals": "^16.3.0",
-    "husky": "^9.1.7",
     "prettier": "^3.6.2",
     "shadcn": "^3.5.0",
     "typescript": "~5.8.3",
