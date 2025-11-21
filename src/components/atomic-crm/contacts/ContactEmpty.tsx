@@ -12,15 +12,15 @@ export const ContactEmpty = () => {
         height: `calc(100dvh - ${appbarHeight}px)`,
       }}
     >
-      <img src="./img/empty.svg" alt="No contacts found" />
+      <img src="./img/empty.svg" alt="No owners found" />
       <div className="flex flex-col gap-0 items-center">
-        <h6 className="text-lg font-bold">No contacts found</h6>
+        <h6 className="text-lg font-bold">No owners found</h6>
         <p className="text-sm text-muted-foreground text-center mb-4">
-          It seems your contact list is empty.
+          It seems your owner list is empty.
         </p>
       </div>
       <div className="flex flex-row gap-2">
-        <CreateButton label="New Contact" />
+        <CreateButton label="New Owner" />
         <ContactImportButton />
       </div>
     </div>

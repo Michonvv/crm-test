@@ -28,7 +28,7 @@ export const CompanyCreate = () => {
                 <FormToolbar>
                   <div className="flex flex-row gap-2 justify-end">
                     <CancelButton />
-                    <SaveButton label="Create Company" />
+                    <SaveButton label="Create Property" />
                   </div>
                 </FormToolbar>
               </CardContent>

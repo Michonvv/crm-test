@@ -1,6 +1,7 @@
 // Setup type definitions for built-in Supabase Runtime APIs
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { ImapClient } from "jsr:@workingdevshero/deno-imap";
+import { simpleParser } from "npm:mailparser@3.7.1";
 import { supabaseAdmin } from "../_shared/supabaseAdmin.ts";
 import { getNoteContent } from "../postmark/getNoteContent.ts";
 import { corsHeaders } from "../_shared/utils.ts";
@@ -105,7 +106,9 @@ Deno.serve(async (req) => {
     const action = url.searchParams.get("action") || "sync"; // "sync" or "process"
     const mode = url.searchParams.get("mode") || "incremental"; // "full" or "incremental"
     const offset = url.searchParams.get("offset"); // Sequence number to start from (for pagination)
-    const batchSize = parseInt(url.searchParams.get("batchSize") || "50"); // Emails per batch
+    // Cap batch size at 20 to prevent timeouts on the Edge Function
+    const batchSizeParam = parseInt(url.searchParams.get("batchSize") || "50");
+    const batchSize = Math.min(batchSizeParam, 20);
 
     let result;
     if (action === "process") {
@@ -270,12 +273,15 @@ async function syncEmails(
       ? `${messagesToProcess[0]}:${messagesToProcess[messagesToProcess.length - 1]}`
       : `${messagesToProcess[0]}`;
     
-    // Fetch messages with envelope, bodyStructure, and raw message
-    // We'll parse the body from the raw message
+    console.log(`Fetching messages for range: ${fetchRange}`);
+
+    // Fetch messages using the configuration from the example
+    // We ask for HEADER and TEXT parts specifically as they seem more reliable than 'raw' on some servers
     const messages = await client.fetch(fetchRange, {
       envelope: true,
       bodyStructure: true,
-      raw: true, // Fetch raw message to parse body
+      bodyParts: ["HEADER", "TEXT"], 
+      full: true,
     });
 
     console.log(`Fetched ${messages.length} messages`);
@@ -291,6 +297,7 @@ async function syncEmails(
           continue;
         }
 
+        // ... address extraction ...
         const fromAddress = message.envelope.from?.[0];
         const toAddresses = message.envelope.to || [];
         const ccAddresses = message.envelope.cc || [];
@@ -308,146 +315,59 @@ async function syncEmails(
         const rawSubject = message.envelope.subject || "";
         const decodedSubject = decodeMimeSubject(rawSubject);
 
-        // Extract body text and HTML
+        // Extract body using mailparser
         let bodyText = "";
         let bodyHtml = "";
         
-        // Try to parse from raw message first (most reliable)
-        let rawMessage = "";
-        if (message.raw) {
-          if (typeof message.raw === 'string') {
-            rawMessage = message.raw;
-          } else if (message.raw instanceof Uint8Array) {
-            rawMessage = new TextDecoder().decode(message.raw);
-          } else {
-            console.log(`Message ${seq}: raw property exists but unknown type: ${typeof message.raw}`);
-          }
+        // Construct raw source from parts if available, otherwise try raw property
+        let rawSource = "";
+        
+        if (message.parts && message.parts.HEADER && message.parts.TEXT) {
+            // Reconstruct from HEADER and TEXT parts
+            // Verify data types and decode if necessary
+            const decoder = new TextDecoder();
+            
+            let headerStr = "";
+            if (message.parts.HEADER.data instanceof Uint8Array) {
+                headerStr = decoder.decode(message.parts.HEADER.data);
+            } else if (typeof message.parts.HEADER === 'string') {
+                headerStr = message.parts.HEADER;
+            }
+            
+            let textStr = "";
+            if (message.parts.TEXT.data instanceof Uint8Array) {
+                textStr = decoder.decode(message.parts.TEXT.data);
+            } else if (typeof message.parts.TEXT === 'string') {
+                textStr = message.parts.TEXT;
+            }
+            
+            if (headerStr && textStr) {
+                rawSource = headerStr + textStr;
+                console.log(`Message ${seq}: Reconstructed raw source from HEADER and TEXT parts (len: ${rawSource.length})`);
+            }
+        } 
+        
+        if (!rawSource && message.raw) {
+             if (typeof message.raw === 'string') {
+                rawSource = message.raw;
+             } else if (message.raw instanceof Uint8Array) {
+                rawSource = new TextDecoder().decode(message.raw);
+             }
+             console.log(`Message ${seq}: Used message.raw (len: ${rawSource.length})`);
         }
 
-        if (rawMessage) {
-          console.log(`Message ${seq}: parsing raw message, length: ${rawMessage.length}`);
-          
-          // Split headers and body - try more robust splitting
-          const splitMatch = rawMessage.match(/\r?\n\r?\n/);
-          if (splitMatch && splitMatch.index) {
-            const headers = rawMessage.substring(0, splitMatch.index);
-            const rawBody = rawMessage.substring(splitMatch.index + splitMatch[0].length);
-            
-            console.log(`Message ${seq}: Split successful. Header len: ${headers.length}, Body len: ${rawBody.length}`);
-
-            // Parse Content-Type from headers
-            const contentTypeHeader = headers.match(/^Content-Type:\s*([^\r\n]+)/im);
-            const contentType = contentTypeHeader ? contentTypeHeader[1] : 'text/plain';
-            console.log(`Message ${seq}: Content-Type: ${contentType}`);
-            
-            if (contentType.toLowerCase().includes('multipart')) {
-              // Parse multipart message
-              const boundaryMatch = contentType.match(/boundary="?([^";\s]+)"?/i);
-              if (boundaryMatch) {
-                const boundary = boundaryMatch[1];
-                console.log(`Message ${seq}: Boundary found: ${boundary}`);
-                
-                // Split by boundary
-                const parts = rawBody.split(`--${boundary}`);
-                
-                for (const part of parts) {
-                  if (!part.trim() || part.trim() === '--') continue;
-                  
-                  const partSplitMatch = part.match(/\r?\n\r?\n/);
-                  if (partSplitMatch && partSplitMatch.index) {
-                    const partHeaders = part.substring(0, partSplitMatch.index);
-                    const partContent = part.substring(partSplitMatch.index + partSplitMatch[0].length);
-                    
-                    const partContentTypeHeader = partHeaders.match(/^Content-Type:\s*([^\r\n]+)/im);
-                    const partContentType = partContentTypeHeader ? partContentTypeHeader[1].toLowerCase() : 'text/plain';
-                    
-                    const partEncodingHeader = partHeaders.match(/^Content-Transfer-Encoding:\s*([^\r\n]+)/im);
-                    const partEncoding = partEncodingHeader ? partEncodingHeader[1].toLowerCase() : '';
-                    
-                    console.log(`Message ${seq}: Part Content-Type: ${partContentType}, Encoding: ${partEncoding}`);
-                    
-                    let decodedPart = partContent.trim();
-                    try {
-                      if (partEncoding === 'base64') {
-                        decodedPart = atob(decodedPart.replace(/\s/g, ''));
-                        // Decode UTF-8 if needed
-                        const bytes = new Uint8Array([...decodedPart].map(c => c.charCodeAt(0)));
-                        decodedPart = new TextDecoder().decode(bytes);
-                      } else if (partEncoding === 'quoted-printable') {
-                        decodedPart = decodedPart
-                          .replace(/=\r?\n/g, '')
-                          .replace(/=([0-9A-F]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
-                      }
-                    } catch (e) {
-                      console.error(`Message ${seq}: Error decoding part:`, e);
-                    }
-
-                    if (partContentType.includes('text/html')) {
-                      bodyHtml += decodedPart;
-                    } else if (partContentType.includes('text/plain')) {
-                      bodyText += decodedPart;
-                    }
-                  }
-                }
-              }
-            } else {
-              // Single part message
-              const encodingHeader = headers.match(/^Content-Transfer-Encoding:\s*([^\r\n]+)/im);
-              const encoding = encodingHeader ? encodingHeader[1].toLowerCase() : '';
-              
-              let decodedBody = rawBody.trim();
-              try {
-                if (encoding === 'base64') {
-                  decodedBody = atob(decodedBody.replace(/\s/g, ''));
-                  const bytes = new Uint8Array([...decodedBody].map(c => c.charCodeAt(0)));
-                  decodedBody = new TextDecoder().decode(bytes);
-                } else if (encoding === 'quoted-printable') {
-                   decodedBody = decodedBody
-                     .replace(/=\r?\n/g, '')
-                     .replace(/=([0-9A-F]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
-                }
-              } catch (e) {
-                console.error(`Message ${seq}: Error decoding body:`, e);
-              }
-
-              if (contentType.toLowerCase().includes('text/html')) {
-                bodyHtml = decodedBody;
-              } else {
-                bodyText = decodedBody;
-              }
-            }
+        if (rawSource) {
+          try {
+             const parsed = await simpleParser(rawSource);
+             if (parsed.text) bodyText = parsed.text;
+             if (parsed.html) bodyHtml = parsed.html as string;
+             console.log(`Message ${seq}: mailparser success. Text len: ${bodyText ? bodyText.length : 0}, HTML len: ${bodyHtml ? bodyHtml.length : 0}`);
+          } catch (e) {
+             console.error(`Message ${seq}: mailparser failed:`, e);
           }
         } else {
-           console.log(`Message ${seq}: No raw string available (message.raw is ${typeof message.raw})`);
-           // Attempt to fetch specific body parts as fallback
-           if (message.parts && Array.isArray(message.parts) && message.parts.length > 0) {
-             console.log(`Message ${seq}: Fallback - trying to fetch body parts individually`);
-             try {
-               // Try fetching part 1
-               const part1Messages = await client.fetch(`${seq}`, { body: '1' });
-               if (part1Messages && part1Messages.length > 0 && part1Messages[0].body) {
-                 const p1 = part1Messages[0].body;
-                 const content = typeof p1 === 'string' ? p1 : (p1.text || p1.content || '');
-                 if (content) {
-                    bodyText += content;
-                    console.log(`Message ${seq}: Fetched part 1, len: ${content.length}`);
-                 }
-               }
-               
-                // Try fetching part 2 (often HTML in multipart/alternative)
-               const part2Messages = await client.fetch(`${seq}`, { body: '2' });
-               if (part2Messages && part2Messages.length > 0 && part2Messages[0].body) {
-                 const p2 = part2Messages[0].body;
-                 const content = typeof p2 === 'string' ? p2 : (p2.text || p2.content || '');
-                 if (content) {
-                    bodyHtml += content;
-                    console.log(`Message ${seq}: Fetched part 2, len: ${content.length}`);
-                 }
-               }
-             } catch (e) {
-               console.error(`Message ${seq}: Error fetching individual parts:`, e);
-             }
-           }
+           console.log(`Message ${seq}: No raw source available (neither parts nor raw property working)`);
+           console.log(`DEBUG: Message ${seq} parts keys:`, message.parts ? Object.keys(message.parts) : 'None');
         }
         
         // Also check parts array if raw didn't work
@@ -582,6 +502,35 @@ async function syncEmails(
   }
 }
 
+
+// Check if any participant (From/To/CC) matches a contact
+async function findContactForEmail(
+  participants: string[]
+): Promise<{ id: number } | null> {
+  // Normalize emails
+  const emails = participants.map(e => e.toLowerCase().trim());
+  
+  if (emails.length === 0) return null;
+
+  // Search for any contact that has one of these emails in their email_jsonb
+  // We can't do a simple "contains" for multiple emails efficiently in one query without complex logic
+  // So we'll loop for now, or we could use a more complex RPC if performance becomes an issue
+  
+  for (const email of emails) {
+      const { data: contact, error } = await supabaseAdmin
+        .from("contacts")
+        .select("id")
+        .contains("email_jsonb", JSON.stringify([{ email: email }]))
+        .maybeSingle();
+        
+      if (contact && !error) {
+          return contact;
+      }
+  }
+  
+  return null;
+}
+
 // Match email to contacts and create notes
 async function matchEmailToContacts(
   emailId: number,
@@ -593,21 +542,13 @@ async function matchEmailToContacts(
 ) {
   const noteContent = getNoteContent(subject, bodyText);
   
-  for (const toEmail of toEmails) {
-    try {
-      // Try to find existing contact by email
-      // email_jsonb is an array like: [{"email": "test@example.com", "type": "Other"}]
-      // Use the same pattern as addNoteToContact
-      const { data: contact, error: contactError } = await supabaseAdmin
-        .from("contacts")
-        .select("*")
-        .contains("email_jsonb", JSON.stringify([{ email: toEmail.email }]))
-        .maybeSingle();
-
-      if (contactError) {
-        console.error(`Error finding contact for ${toEmail.email}:`, contactError);
-        continue;
-      }
+  // Collect all unique email addresses involved in this conversation
+  const allParticipants = new Set<string>();
+  allParticipants.add(fromEmail);
+  toEmails.forEach(t => allParticipants.add(t.email));
+  
+  try {
+      const contact = await findContactForEmail(Array.from(allParticipants));
 
       if (contact) {
         // Contact exists - create note and link email
@@ -622,7 +563,7 @@ async function matchEmailToContacts(
         if (noteError) {
           console.error(`Error creating note for contact ${contact.id}:`, noteError);
         } else {
-          console.log(`Created note for existing contact: ${toEmail.email} (contact ID: ${contact.id})`);
+          console.log(`Created note for existing contact ID: ${contact.id}`);
           
           // Update contact's last_seen
           await supabaseAdmin
@@ -640,13 +581,10 @@ async function matchEmailToContacts(
           })
           .eq("id", emailId);
       } else {
-        // Contact doesn't exist - we'll create it when user views the email or manually
-        // For now, just mark that we tried to match
-        console.log(`No contact found for ${toEmail.email}, email stored but not linked`);
+        console.log(`No contact found for participants: ${Array.from(allParticipants).join(', ')}`);
       }
-    } catch (error) {
-      console.error(`Error matching email to contact ${toEmail.email}:`, error);
-    }
+  } catch (error) {
+      console.error(`Error matching email ${emailId} to contacts:`, error);
   }
 }
 

@@ -24,6 +24,7 @@ import { RelativeDate } from "../misc/RelativeDate";
 import { Status } from "../misc/Status";
 import { SaleName } from "../sales/SaleName";
 import type { ContactNote, DealNote } from "../types";
+import { EmailFormattedText } from "./EmailFormattedText";
 import { NoteAttachments } from "./NoteAttachments";
 import { NoteInputs } from "./NoteInputs";
 
@@ -172,13 +173,8 @@ export const Note = ({
           </div>
         </Form>
       ) : (
-        <div className="pt-2 [&_p:empty]:min-h-[0.75em]">
-          {note.text?.split("\n").map((paragraph: string, index: number) => (
-            <p className="text-sm leading-6 m-0" key={index}>
-              {paragraph}
-            </p>
-          ))}
-
+        <div className="pt-2">
+          <EmailFormattedText text={note.text || ""} />
           {note.attachments && <NoteAttachments note={note} />}
         </div>
       )}

@@ -1,7 +1,7 @@
 export const sizes = [
-  { id: 1, name: "1 employee" },
-  { id: 10, name: "2-9 employees" },
-  { id: 50, name: "10-49 employees" },
-  { id: 250, name: "50-249 employees" },
-  { id: 500, name: "250 or more employees" },
+  { id: 1, name: "1 Bedroom" },
+  { id: 2, name: "2 Bedrooms" },
+  { id: 3, name: "3 Bedrooms" },
+  { id: 4, name: "4 Bedrooms" },
+  { id: 5, name: "5+ Bedrooms" },
 ];

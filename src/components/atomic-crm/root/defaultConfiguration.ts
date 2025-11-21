@@ -1,41 +1,39 @@
 import { Mars, NonBinary, Venus } from "lucide-react";
 
-export const defaultDarkModeLogo = "./logos/logo_atomic_crm_dark.svg";
-export const defaultLightModeLogo = "./logos/logo_atomic_crm_light.svg";
+export const defaultDarkModeLogo = "./logos/guestri.png";
+export const defaultLightModeLogo = "./logos/guestri.png";
 
-export const defaultTitle = "Atomic CRM";
+export const defaultTitle = "guestri CRM";
 
 export const defaultCompanySectors = [
-  "Communication Services",
-  "Consumer Discretionary",
-  "Consumer Staples",
-  "Energy",
-  "Financials",
-  "Health Care",
-  "Industrials",
-  "Information Technology",
-  "Materials",
-  "Real Estate",
-  "Utilities",
+  "Apartment",
+  "House",
+  "Villa",
+  "Condo",
+  "Cottage",
+  "Bungalow",
+  "Cabin",
+  "Loft",
+  "Townhouse",
+  "Other",
 ];
 
 export const defaultDealStages = [
-  { value: "opportunity", label: "Opportunity" },
-  { value: "proposal-sent", label: "Proposal Sent" },
-  { value: "in-negociation", label: "In Negotiation" },
-  { value: "won", label: "Won" },
-  { value: "lost", label: "Lost" },
-  { value: "delayed", label: "Delayed" },
+  { value: "lead", label: "Lead" },
+  { value: "outreach", label: "Outreach" },
+  { value: "trailing", label: "Trailing" },
+  { value: "onboarding", label: "Onboarding" },
+  { value: "subscription", label: "Subscription" },
+  { value: "churned", label: "Churned" },
 ];
 
-export const defaultDealPipelineStatuses = ["won"];
+export const defaultDealPipelineStatuses = ["subscription"];
 
 export const defaultDealCategories = [
-  "Other",
-  "Copywriting",
-  "Print project",
-  "UI Design",
-  "Website design",
+  "SaaS Subscription",
+  "Enterprise Plan",
+  "Add-on Service",
+  "Consulting",
 ];
 
 export const defaultNoteStatuses = [

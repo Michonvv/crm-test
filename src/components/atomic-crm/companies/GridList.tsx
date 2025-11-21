@@ -35,7 +35,7 @@ const LoadedGridList = () => {
         </RecordContextProvider>
       ))}
 
-      {data.length === 0 && <div className="p-2">No companies found</div>}
+      {data.length === 0 && <div className="p-2">No properties found</div>}
     </div>
   );
 };

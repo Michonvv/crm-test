@@ -27,9 +27,9 @@ export const ContactAside = ({ link = "edit" }: { link?: "edit" | "show" }) => {
     <div className="hidden sm:block w-64 min-w-64 text-sm">
       <div className="mb-4 -ml-1">
         {link === "edit" ? (
-          <EditButton label="Edit Contact" />
+          <EditButton label="Edit Owner" />
         ) : (
-          <ShowButton label="Show Contact" />
+          <ShowButton label="Show Owner" />
         )}
       </div>
 

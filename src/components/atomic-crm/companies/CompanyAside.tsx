@@ -25,9 +25,9 @@ export const CompanyAside = ({ link = "edit" }: CompanyAsideProps) => {
     <div className="hidden sm:block w-[250px] min-w-[250px] space-y-4">
       <div className="flex flex-row space-x-1">
         {link === "edit" ? (
-          <EditButton label="Edit Company" />
+          <EditButton label="Edit Property" />
         ) : (
-          <ShowButton label="Show Company" />
+          <ShowButton label="Show Property" />
         )}
       </div>
 
@@ -48,7 +48,7 @@ const CompanyInfo = ({ record }: { record: Company }) => {
   }
 
   return (
-    <AsideSection title="Company Info">
+    <AsideSection title="Property Info">
       {record.website && (
         <div className="flex flex-row items-center gap-1 min-h-[24px]">
           <Globe className="w-4 h-4" />
@@ -60,20 +60,6 @@ const CompanyInfo = ({ record }: { record: Company }) => {
               .replace("http://", "")
               .replace("https://", "")}
           />
-        </div>
-      )}
-      {record.linkedin_url && (
-        <div className="flex flex-row items-center gap-1 min-h-[24px]">
-          <Linkedin className="w-4 h-4" />
-          <a
-            className="underline hover:no-underline"
-            href={record.linkedin_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            title={record.linkedin_url}
-          >
-            LinkedIn
-          </a>
         </div>
       )}
       {record.phone_number && (
@@ -95,22 +81,17 @@ const ContextInfo = ({ record }: { record: Company }) => {
     <AsideSection title="Context">
       {record.sector && (
         <span>
-          Sector: <TextField source="sector" />
+          Type: <TextField source="sector" />
         </span>
       )}
       {record.size && (
         <span>
-          Size: <SelectField source="size" choices={sizes} />
+          Bedrooms: <SelectField source="size" choices={sizes} />
         </span>
       )}
       {record.revenue && (
         <span>
-          Revenue: <TextField source="revenue" />
-        </span>
-      )}
-      {record.tax_identifier && (
-        <span>
-          Tax Identifier: <TextField source="tax_identifier" />
+          Nightly Rate: <TextField source="revenue" />
         </span>
       )}
     </AsideSection>

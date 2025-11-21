@@ -69,15 +69,15 @@ const CompanyShowContent = () => {
                 <TabsTrigger value="contacts">
                   {record.nb_contacts
                     ? record.nb_contacts === 1
-                      ? "1 Contact"
-                      : `${record.nb_contacts} Contacts`
-                    : "No Contacts"}
+                      ? "1 Owner"
+                      : `${record.nb_contacts} Owners`
+                    : "No Owners"}
                 </TabsTrigger>
                 {record.nb_deals ? (
                   <TabsTrigger value="deals">
                     {record.nb_deals === 1
-                      ? "1 deal"
-                      : `${record.nb_deals} deals`}
+                      ? "1 Pipeline"
+                      : `${record.nb_deals} Pipelines`}
                   </TabsTrigger>
                 ) : null}
               </TabsList>
@@ -192,7 +192,7 @@ const CreateRelatedContactButton = () => {
         className="flex items-center gap-2"
       >
         <UserPlus className="h-4 w-4" />
-        Add contact
+        Add Owner
       </RouterLink>
     </Button>
   );

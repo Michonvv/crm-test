@@ -55,17 +55,17 @@ const Header = () => {
                   isActive={currentPath === "/"}
                 />
                 <NavigationTab
-                  label="Contacts"
+                  label="Owners"
                   to="/contacts"
                   isActive={currentPath === "/contacts"}
                 />
                 <NavigationTab
-                  label="Companies"
+                  label="Properties"
                   to="/companies"
                   isActive={currentPath === "/companies"}
                 />
                 <NavigationTab
-                  label="Deals"
+                  label="Leads"
                   to="/deals"
                   isActive={currentPath === "/deals"}
                 />

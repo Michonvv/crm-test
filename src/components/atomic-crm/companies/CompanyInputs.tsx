@@ -62,7 +62,8 @@ const CompanyDisplayInputs = () => {
         className="w-full h-fit"
         validate={required()}
         helperText={false}
-        placeholder="Company name"
+        placeholder="Property name"
+        label="Property Name"
       />
     </div>
   );
@@ -72,13 +73,8 @@ const CompanyContactInputs = () => {
   return (
     <div className="flex flex-col gap-4">
       <h6 className="text-lg font-semibold">Contact</h6>
-      <TextInput source="website" helperText={false} validate={isUrl} />
-      <TextInput
-        source="linkedin_url"
-        helperText={false}
-        validate={isLinkedinUrl}
-      />
-      <TextInput source="phone_number" helperText={false} />
+      <TextInput source="website" helperText={false} validate={isUrl} label="Listing URL" />
+      <TextInput source="phone_number" helperText={false} label="Phone Number" />
     </div>
   );
 };
@@ -95,10 +91,10 @@ const CompanyContextInputs = () => {
           name: sector,
         }))}
         helperText={false}
+        label="Property Type"
       />
-      <SelectInput source="size" choices={sizes} helperText={false} />
-      <TextInput source="revenue" helperText={false} />
-      <TextInput source="tax_identifier" helperText={false} />
+      <SelectInput source="size" choices={sizes} helperText={false} label="Bedrooms" />
+      <TextInput source="revenue" helperText={false} label="Nightly Rate" />
     </div>
   );
 };

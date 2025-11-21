@@ -46,10 +46,10 @@ export const DashboardStepper = ({
               )}
 
               <div className="flex flex-col gap-4">
-                <h4 className="font-bold">Add your first contact</h4>
+                <h4 className="font-bold">Add your first owner</h4>
 
                 <div className="flex gap-8">
-                  <CreateButton label="New Contact" resource="contacts" />
+                  <CreateButton label="New Owner" resource="contacts" />
                   <ContactImportButton />
                 </div>
               </div>
