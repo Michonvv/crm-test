@@ -49,3 +49,4 @@ Ensure `VITE_SUPABASE_URL` in your `.env` or `.env.local` points to your local S
    - If it says "Backend error", check the terminal where `supabase functions serve` is running.
    - If it hangs at "Connecting...", check the browser console (F12) for network errors.
 
+

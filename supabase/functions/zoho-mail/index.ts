@@ -62,11 +62,15 @@ interface ZohoEmailSearchResponse {
 }
 
 interface ZohoEmailContentResponse {
-  data: {
-    content: {
-      text: string;
-      html: string;
+  data?: {
+    content?: {
+      text?: string;
+      html?: string;
     };
+  };
+  content?: {
+    text?: string;
+    html?: string;
   };
 }
 
@@ -194,6 +198,46 @@ async function getAccountId(
 }
 
 /**
+ * Extract email address from string that might contain name (e.g., "Name <email@example.com>" or just "email@example.com")
+ */
+function extractEmailAddress(emailString: string): string {
+  if (!emailString) return "";
+  
+  // If it's already just an email, return it
+  if (/^[^\s<]+@[^\s>]+$/.test(emailString.trim())) {
+    return emailString.trim().toLowerCase();
+  }
+  
+  // Try to extract email from "Name <email@example.com>" format
+  const emailMatch = emailString.match(/<([^>]+)>/);
+  if (emailMatch && emailMatch[1]) {
+    return emailMatch[1].trim().toLowerCase();
+  }
+  
+  // Try to extract email from string (look for @ symbol)
+  const atIndex = emailString.indexOf('@');
+  if (atIndex > 0) {
+    // Find the start of the email (look backwards for space or <)
+    let start = atIndex;
+    while (start > 0 && emailString[start - 1] !== ' ' && emailString[start - 1] !== '<') {
+      start--;
+    }
+    // Find the end of the email (look forwards for space or >)
+    let end = atIndex;
+    while (end < emailString.length && emailString[end] !== ' ' && emailString[end] !== '>') {
+      end++;
+    }
+    const extracted = emailString.substring(start, end).replace(/[<>]/g, '').trim();
+    if (extracted.includes('@')) {
+      return extracted.toLowerCase();
+    }
+  }
+  
+  // Fallback: return trimmed lowercase version
+  return emailString.trim().toLowerCase();
+}
+
+/**
  * Get folder ID by name (e.g., "Inbox", "Sent")
  */
 async function getFolderId(
@@ -230,11 +274,77 @@ async function getFolderId(
 }
 
 /**
+ * Helper function to fetch all pages of search results with pagination
+ */
+async function fetchAllSearchResults(
+  searchUrl: string,
+  accessToken: string,
+  maxResults: number = 10000, // Very high limit to get all emails
+): Promise<any[]> {
+  const allMessages: any[] = [];
+  let start = 0;
+  const pageSize = 200; // Fetch 200 at a time (Zoho API max is typically 200)
+  let hasMore = true;
+
+  while (hasMore && allMessages.length < maxResults) {
+    const urlWithPagination = `${searchUrl}${searchUrl.includes('?') ? '&' : '?'}start=${start}&limit=${pageSize}`;
+    
+    try {
+      const response = await fetch(urlWithPagination, {
+        headers: {
+          Authorization: `Zoho-oauthtoken ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.warn(`Search pagination failed: ${response.status} - ${errorText.substring(0, 200)}`);
+        break;
+      }
+
+      const data: any = await response.json();
+      let messages: any[] = [];
+      
+      if (data?.data && Array.isArray(data.data)) {
+        messages = data.data;
+      } else if (data?.messages && Array.isArray(data.messages)) {
+        messages = data.messages;
+      }
+
+      if (messages.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      allMessages.push(...messages);
+      console.log(`Fetched page: ${allMessages.length} total messages so far`);
+
+      // Check if there are more results
+      // Zoho API typically indicates more results if we got a full page
+      if (messages.length < pageSize) {
+        hasMore = false;
+      } else {
+        start += pageSize;
+        // Add a small delay to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    } catch (error) {
+      console.error(`Error fetching search results page:`, error);
+      break;
+    }
+  }
+
+  return allMessages;
+}
+
+/**
  * Search emails by contact email addresses across all accounts
+ * Now fetches ALL emails with pagination support
  */
 async function searchEmailsByContact(
   contactEmails: string[],
-  limit: number = 50,
+  limit: number = 10000, // Very high default limit to get all emails
   accessToken: string,
   apiBaseUrl: string,
   accountId: string,
@@ -257,9 +367,45 @@ async function searchEmailsByContact(
   console.log(`Using account ID: ${accountId}`);
   console.log(`Searching for emails with addresses: ${normalizedEmails.join(", ")}`);
 
-  // Get folder IDs for Inbox and Sent (common folders) - only if needed for folder-specific search
+  // Get folder IDs for Inbox and Sent - always fetch Sent folder to ensure we get sent emails
   let inboxFolderId: string | null = null;
   let sentFolderId: string | null = null;
+  
+  // Always fetch Sent folder ID to search for emails the user sent to contacts
+  // Try multiple possible names for Sent folder
+  try {
+    sentFolderId = await getFolderId("Sent", accessToken, apiBaseUrl, accountId);
+    if (!sentFolderId) {
+      // Try alternative names
+      sentFolderId = await getFolderId("Sent Items", accessToken, apiBaseUrl, accountId);
+    }
+    if (!sentFolderId) {
+      sentFolderId = await getFolderId("Sent Mail", accessToken, apiBaseUrl, accountId);
+    }
+    console.log(`Sent folder ID: ${sentFolderId || "not found"}`);
+    
+    if (!sentFolderId) {
+      // List all folders to see what's available
+      try {
+        const foldersUrl = `${apiBaseUrl}/accounts/${accountId}/folders`;
+        const foldersResponse = await fetch(foldersUrl, {
+          headers: {
+            Authorization: `Zoho-oauthtoken ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+        });
+        if (foldersResponse.ok) {
+          const foldersData: any = await foldersResponse.json();
+          const folders = foldersData?.data?.folders || foldersData?.folders || foldersData?.data || [];
+          console.log(`Available folders:`, folders.map((f: any) => f.name || f.folderName).join(", "));
+        }
+      } catch (error) {
+        console.warn("Error listing folders:", error);
+      }
+    }
+  } catch (error) {
+    console.warn("Error fetching Sent folder ID:", error);
+  }
 
   // Search for emails where contact is sender or recipient
   // According to Zoho Mail API docs, we need accountId for search
@@ -276,187 +422,168 @@ async function searchEmailsByContact(
       // searchKey uses search syntax like "from:email@example.com" or "to:email@example.com"
       // We'll search for emails where the contact is sender OR recipient
       
-      // Approach 1: Search for emails FROM this contact
+      // Approach 1: Search for emails FROM this contact (with pagination)
       const fromSearchKey = `from:${email}`;
-      const fromSearchUrl = `${apiBaseUrl}/accounts/${accountId}/messages/search?searchKey=${encodeURIComponent(fromSearchKey)}&limit=${limit}&includeto=true`;
+      const fromSearchUrl = `${apiBaseUrl}/accounts/${accountId}/messages/search?searchKey=${encodeURIComponent(fromSearchKey)}&includeto=true`;
 
-      console.log(`Searching emails FROM: ${email}`, fromSearchUrl);
-      const fromResponse = await fetch(fromSearchUrl, {
-        headers: {
-          Authorization: `Zoho-oauthtoken ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-      });
-
-      if (fromResponse.ok) {
-        const fromData: any = await fromResponse.json();
-        console.log(`FROM search response:`, JSON.stringify(fromData, null, 2));
-        
-        // According to Zoho Mail API docs, response structure is:
-        // { "status": { "code": 200, "description": "success" }, "data": [...] }
-        let messages: any[] = [];
-        if (fromData?.data && Array.isArray(fromData.data)) {
-          messages = fromData.data;
-        }
-        
-        if (messages.length > 0) {
-          // Filter to ensure emails actually match the contact email
-          const filteredMessages = messages.filter((msg: any) => {
-            const fromAddr = (msg.fromAddress || msg.from?.email || msg.from || "").toLowerCase();
-            return fromAddr === email.toLowerCase();
-          });
-          console.log(`Found ${messages.length} messages FROM ${email}, filtered to ${filteredMessages.length} matching messages`);
-          allMessages.push(...filteredMessages);
-        }
-      } else {
-        const errorText = await fromResponse.text();
-        console.warn(`FROM search failed for ${email}: ${fromResponse.status} - ${errorText.substring(0, 200)}`);
+      console.log(`Searching emails FROM: ${email} (with pagination)`);
+      const fromMessages = await fetchAllSearchResults(fromSearchUrl, accessToken, limit);
+      
+      if (fromMessages.length > 0) {
+        // Filter to ensure emails actually match the contact email
+        const filteredMessages = fromMessages.filter((msg: any) => {
+          const fromAddr = extractEmailAddress(String(msg.fromAddress || msg.from?.email || msg.from || ""));
+          return fromAddr === email.toLowerCase();
+        });
+        console.log(`Found ${fromMessages.length} messages FROM ${email}, filtered to ${filteredMessages.length} matching messages`);
+        allMessages.push(...filteredMessages);
       }
       
-      // Approach 2: Search for emails TO this contact
+      // Approach 2: Search for emails TO this contact (with pagination)
       const toSearchKey = `to:${email}`;
-      const toSearchUrl = `${apiBaseUrl}/accounts/${accountId}/messages/search?searchKey=${encodeURIComponent(toSearchKey)}&limit=${limit}&includeto=true`;
+      const toSearchUrl = `${apiBaseUrl}/accounts/${accountId}/messages/search?searchKey=${encodeURIComponent(toSearchKey)}&includeto=true`;
 
-      console.log(`Searching emails TO: ${email}`, toSearchUrl);
-      const toResponse = await fetch(toSearchUrl, {
-        headers: {
-          Authorization: `Zoho-oauthtoken ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-      });
+      console.log(`Searching emails TO: ${email} (with pagination)`);
+      const toMessages = await fetchAllSearchResults(toSearchUrl, accessToken, limit);
+      
+      if (toMessages.length > 0) {
+        // Filter to ensure emails actually match the contact email in TO field
+        const filteredMessages = toMessages.filter((msg: any) => {
+          const toAddresses = msg.toAddress || msg.to || [];
+          const toArray = Array.isArray(toAddresses) ? toAddresses : [toAddresses];
+          return toArray.some((addr: any) => {
+            const addrRaw = typeof addr === 'string' ? addr : (addr.email || addr.address || "");
+            const addrEmail = extractEmailAddress(String(addrRaw));
+            return addrEmail === email.toLowerCase();
+          });
+        });
+        console.log(`Found ${toMessages.length} messages TO ${email}, filtered to ${filteredMessages.length} matching messages`);
+        allMessages.push(...filteredMessages);
+      }
+      
+      // Approach 3: Try searching for emails where contact is in CC (with pagination)
+      const ccSearchKey = `cc:${email}`;
+      const ccSearchUrl = `${apiBaseUrl}/accounts/${accountId}/messages/search?searchKey=${encodeURIComponent(ccSearchKey)}&includeto=true`;
 
-      if (toResponse.ok) {
-        const toData: any = await toResponse.json();
-        console.log(`TO search response:`, JSON.stringify(toData, null, 2));
+      console.log(`Searching emails CC: ${email} (with pagination)`);
+      const ccMessages = await fetchAllSearchResults(ccSearchUrl, accessToken, limit);
+      
+      if (ccMessages.length > 0) {
+        // Filter to ensure emails actually match the contact email in CC field
+        const filteredMessages = ccMessages.filter((msg: any) => {
+          const ccAddresses = msg.ccAddress || msg.cc || [];
+          const ccArray = Array.isArray(ccAddresses) ? ccAddresses : [ccAddresses];
+          return ccArray.some((addr: any) => {
+            const addrEmail = extractEmailAddress(String(typeof addr === 'string' ? addr : (addr.email || "")));
+            return addrEmail === email.toLowerCase();
+          });
+        });
+        console.log(`Found ${ccMessages.length} messages CC ${email}, filtered to ${filteredMessages.length} matching messages`);
+        allMessages.push(...filteredMessages);
+      }
+
+      // Approach 4: Always search in Sent folder for emails the user sent TO the contact (with pagination)
+      // This ensures we capture all emails the user sent to the contact
+      if (sentFolderId) {
+        // Try multiple search approaches for Sent folder
+        // Method 1: Search with to: prefix
+        const sentToSearch = `to:${email}`;
+        const sentToUrl = `${apiBaseUrl}/accounts/${accountId}/folders/${sentFolderId}/messages/search?searchKey=${encodeURIComponent(sentToSearch)}&includeto=true`;
+        console.log(`[SENT FOLDER] Searching for emails TO: ${email} in folder ${sentFolderId} (with pagination)`);
         
-        let messages: any[] = [];
-        if (toData?.data && Array.isArray(toData.data)) {
-          messages = toData.data;
-        }
+        const sentMessages = await fetchAllSearchResults(sentToUrl, accessToken, limit);
+        console.log(`[SENT FOLDER] Found ${sentMessages.length} messages from search`);
         
-        if (messages.length > 0) {
+        if (sentMessages.length > 0) {
+          // Log sample message structure for debugging
+          console.log(`[SENT FOLDER] Sample message structure:`, JSON.stringify(sentMessages[0], null, 2));
+          
           // Filter to ensure emails actually match the contact email in TO field
-          // Need includeto=true to get toAddress field
-          const filteredMessages = messages.filter((msg: any) => {
-            // Check toAddress field (array or string)
+          const filteredMessages = sentMessages.filter((msg: any) => {
             const toAddresses = msg.toAddress || msg.to || [];
             const toArray = Array.isArray(toAddresses) ? toAddresses : [toAddresses];
-            return toArray.some((addr: any) => {
-              const addrEmail = (typeof addr === 'string' ? addr : addr.email || "").toLowerCase();
-              return addrEmail === email.toLowerCase();
+            const matches = toArray.some((addr: any) => {
+              const addrRaw = typeof addr === 'string' ? addr : (addr.email || addr.address || "");
+              const addrEmail = extractEmailAddress(String(addrRaw));
+              const match = addrEmail === email.toLowerCase();
+              if (!match && sentMessages.length <= 5) {
+                console.log(`[SENT FOLDER] Email mismatch: extracted "${addrEmail}" vs contact "${email.toLowerCase()}" from raw: "${addrRaw}"`);
+              }
+              return match;
             });
+            return matches;
           });
-          console.log(`Found ${messages.length} messages TO ${email}, filtered to ${filteredMessages.length} matching messages`);
-          allMessages.push(...filteredMessages);
+          console.log(`[SENT FOLDER] Found ${sentMessages.length} sent messages TO ${email}, filtered to ${filteredMessages.length} matching messages`);
+          
+          if (filteredMessages.length > 0) {
+            allMessages.push(...filteredMessages);
+          } else if (sentMessages.length > 0) {
+            // If filtering removed all messages, log why
+            console.warn(`[SENT FOLDER] All ${sentMessages.length} messages were filtered out. Sample TO addresses:`, 
+              sentMessages.slice(0, 3).map((m: any) => ({
+                toAddress: m.toAddress,
+                to: m.to,
+                messageId: m.messageId
+              }))
+            );
+          }
+        } else {
+          // Method 2: Try searching without searchKey, just get all messages from Sent folder and filter
+          console.log(`[SENT FOLDER] No results from search, trying to fetch all messages from Sent folder`);
+          try {
+            const sentAllUrl = `${apiBaseUrl}/accounts/${accountId}/folders/${sentFolderId}/messages?includeto=true&limit=200`;
+            const sentAllResponse = await fetch(sentAllUrl, {
+              headers: {
+                Authorization: `Zoho-oauthtoken ${accessToken}`,
+                "Content-Type": "application/json",
+              },
+            });
+            
+            if (sentAllResponse.ok) {
+              const sentAllData: any = await sentAllResponse.json();
+              const allSentMessages = sentAllData?.data || sentAllData?.messages || [];
+              console.log(`[SENT FOLDER] Fetched ${allSentMessages.length} total messages from Sent folder`);
+              
+              // Filter to find emails sent TO the contact
+              const filteredSentMessages = allSentMessages.filter((msg: any) => {
+                const toAddresses = msg.toAddress || msg.to || [];
+                const toArray = Array.isArray(toAddresses) ? toAddresses : [toAddresses];
+                return toArray.some((addr: any) => {
+                  const addrRaw = typeof addr === 'string' ? addr : (addr.email || addr.address || "");
+                  const addrEmail = extractEmailAddress(String(addrRaw));
+                  return addrEmail === email.toLowerCase();
+                });
+              });
+              
+              if (filteredSentMessages.length > 0) {
+                console.log(`[SENT FOLDER] Found ${filteredSentMessages.length} messages sent TO ${email} from all Sent messages`);
+                allMessages.push(...filteredSentMessages);
+              }
+            }
+          } catch (error) {
+            console.error(`[SENT FOLDER] Error fetching all messages from Sent folder:`, error);
+          }
         }
       } else {
-        const errorText = await toResponse.text();
-        console.warn(`TO search failed for ${email}: ${toResponse.status} - ${errorText.substring(0, 200)}`);
+        console.warn(`[SENT FOLDER] Sent folder ID not found, cannot search sent emails for ${email}`);
+      }
+
+      // Approach 5: Search in Inbox folder as well (with pagination)
+      if (!inboxFolderId) {
+        inboxFolderId = await getFolderId("Inbox", accessToken, apiBaseUrl, accountId);
       }
       
-      // Approach 3: Try searching for emails where contact is in CC
-      const ccSearchKey = `cc:${email}`;
-      const ccSearchUrl = `${apiBaseUrl}/accounts/${accountId}/messages/search?searchKey=${encodeURIComponent(ccSearchKey)}&limit=${limit}&includeto=true`;
-
-      console.log(`Searching emails CC: ${email}`, ccSearchUrl);
-      const ccResponse = await fetch(ccSearchUrl, {
-        headers: {
-          Authorization: `Zoho-oauthtoken ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-      });
-
-      if (ccResponse.ok) {
-        const ccData: any = await ccResponse.json();
-        let messages: any[] = [];
-        if (ccData?.data && Array.isArray(ccData.data)) {
-          messages = ccData.data;
-        }
+      if (inboxFolderId) {
+        // Search for emails FROM this contact in Inbox
+        const inboxFromSearch = `from:${email}`;
+        const inboxFromUrl = `${apiBaseUrl}/accounts/${accountId}/folders/${inboxFolderId}/messages/search?searchKey=${encodeURIComponent(inboxFromSearch)}&includeto=true`;
+        console.log(`Searching in Inbox folder FROM: ${email} (with pagination)`);
         
-        if (messages.length > 0) {
-          // Filter to ensure emails actually match the contact email in CC field
-          const filteredMessages = messages.filter((msg: any) => {
-            const ccAddresses = msg.ccAddress || msg.cc || [];
-            const ccArray = Array.isArray(ccAddresses) ? ccAddresses : [ccAddresses];
-            return ccArray.some((addr: any) => {
-              const addrEmail = (typeof addr === 'string' ? addr : addr.email || "").toLowerCase();
-              return addrEmail === email.toLowerCase();
-            });
-          });
-          console.log(`Found ${messages.length} messages CC ${email}, filtered to ${filteredMessages.length} matching messages`);
-          allMessages.push(...filteredMessages);
-        }
-      }
-
-      // Approach 4: Search in specific folders (Inbox and Sent) if general search didn't find much
-      // Only fetch folder IDs if we need them
-      if (allMessages.length < 5) {
-        if (!inboxFolderId) {
-          inboxFolderId = await getFolderId("Inbox", accessToken, apiBaseUrl, accountId);
-        }
-        if (!sentFolderId) {
-          sentFolderId = await getFolderId("Sent", accessToken, apiBaseUrl, accountId);
-        }
+        const inboxMessages = await fetchAllSearchResults(inboxFromUrl, accessToken, limit);
         
-        if (inboxFolderId || sentFolderId) {
-          const foldersToSearch = [
-            { id: inboxFolderId, name: "Inbox" },
-            { id: sentFolderId, name: "Sent" },
-          ].filter(f => f.id);
-
-          for (const folder of foldersToSearch) {
-            // Search in folder using searchKey with proper syntax
-            const folderFromSearch = `from:${email}`;
-            const folderFromUrl = `${apiBaseUrl}/accounts/${accountId}/folders/${folder.id}/messages/search?searchKey=${encodeURIComponent(folderFromSearch)}&limit=${limit}&includeto=true`;
-            console.log(`Searching in ${folder.name} folder FROM: ${email}`, folderFromUrl);
-            
-            const folderFromResponse = await fetch(folderFromUrl, {
-              headers: {
-                Authorization: `Zoho-oauthtoken ${accessToken}`,
-                "Content-Type": "application/json",
-              },
-            });
-
-            if (folderFromResponse.ok) {
-              const folderData: any = await folderFromResponse.json();
-              let messages: any[] = [];
-              
-              if (folderData?.data && Array.isArray(folderData.data)) {
-                messages = folderData.data;
-              }
-              
-              if (messages.length > 0) {
-                console.log(`Found ${messages.length} messages in ${folder.name} FROM ${email}`);
-                allMessages.push(...messages);
-              }
-            }
-            
-            // Also search for emails TO this contact in the folder
-            const folderToSearch = `to:${email}`;
-            const folderToUrl = `${apiBaseUrl}/accounts/${accountId}/folders/${folder.id}/messages/search?searchKey=${encodeURIComponent(folderToSearch)}&limit=${limit}&includeto=true`;
-            console.log(`Searching in ${folder.name} folder TO: ${email}`, folderToUrl);
-            
-            const folderToResponse = await fetch(folderToUrl, {
-              headers: {
-                Authorization: `Zoho-oauthtoken ${accessToken}`,
-                "Content-Type": "application/json",
-              },
-            });
-
-            if (folderToResponse.ok) {
-              const folderData: any = await folderToResponse.json();
-              let messages: any[] = [];
-              
-              if (folderData?.data && Array.isArray(folderData.data)) {
-                messages = folderData.data;
-              }
-              
-              if (messages.length > 0) {
-                console.log(`Found ${messages.length} messages in ${folder.name} TO ${email}`);
-                allMessages.push(...messages);
-              }
-            }
-          }
+        if (inboxMessages.length > 0) {
+          console.log(`Found ${inboxMessages.length} messages in Inbox FROM ${email}`);
+          allMessages.push(...inboxMessages);
         }
       }
     } catch (error) {
@@ -465,23 +592,35 @@ async function searchEmailsByContact(
   }
   
   console.log(`Total messages found before filtering: ${allMessages.length}`);
+  if (allMessages.length > 0) {
+    console.log(`Sample message structure:`, JSON.stringify(allMessages[0], null, 2));
+  }
 
   // Final filter: Ensure all messages actually match one of the contact emails
   // This is important because the searchKey might not be filtering correctly
+  // For sent emails: FROM will be user's email, TO will be contact's email
+  // For received emails: FROM will be contact's email, TO will be user's email
   const contactEmailSet = new Set(normalizedEmails);
+  console.log(`Filtering messages against contact emails: ${Array.from(contactEmailSet).join(", ")}`);
+  console.log(`Total messages before final filter: ${allMessages.length}`);
+  
   const filteredMessages = allMessages.filter((msg: any) => {
-    // Check FROM field
-    const fromAddr = (msg.fromAddress || msg.from?.email || msg.from || "").toLowerCase().trim();
-    if (contactEmailSet.has(fromAddr)) {
+    // Check FROM field (for emails FROM contact)
+    const fromRaw = msg.fromAddress || msg.from?.email || msg.from || "";
+    const fromAddr = extractEmailAddress(String(fromRaw));
+    if (fromAddr && contactEmailSet.has(fromAddr)) {
+      console.log(`Message ${msg.messageId || msg.id} matched via FROM: ${fromAddr}`);
       return true;
     }
     
-    // Check TO field (need to handle array)
+    // Check TO field (for emails TO contact - this includes sent emails)
     const toAddresses = msg.toAddress || msg.to || [];
     const toArray = Array.isArray(toAddresses) ? toAddresses : [toAddresses];
     for (const addr of toArray) {
-      const addrEmail = (typeof addr === 'string' ? addr : (addr.email || addr.address || "")).toLowerCase().trim();
-      if (contactEmailSet.has(addrEmail)) {
+      const addrRaw = typeof addr === 'string' ? addr : (addr.email || addr.address || "");
+      const addrEmail = extractEmailAddress(String(addrRaw));
+      if (addrEmail && contactEmailSet.has(addrEmail)) {
+        console.log(`Message ${msg.messageId || msg.id} matched via TO: ${addrEmail}`);
         return true;
       }
     }
@@ -490,10 +629,20 @@ async function searchEmailsByContact(
     const ccAddresses = msg.ccAddress || msg.cc || [];
     const ccArray = Array.isArray(ccAddresses) ? ccAddresses : [ccAddresses];
     for (const addr of ccArray) {
-      const addrEmail = (typeof addr === 'string' ? addr : (addr.email || addr.address || "")).toLowerCase().trim();
-      if (contactEmailSet.has(addrEmail)) {
+      const addrRaw = typeof addr === 'string' ? addr : (addr.email || addr.address || "");
+      const addrEmail = extractEmailAddress(String(addrRaw));
+      if (addrEmail && contactEmailSet.has(addrEmail)) {
+        console.log(`Message ${msg.messageId || msg.id} matched via CC: ${addrEmail}`);
         return true;
       }
+    }
+    
+    // Log why message was filtered out (only for first few to avoid spam)
+    if (allMessages.length <= 20) {
+      console.log(`Message ${msg.messageId || msg.id} filtered out. FROM: ${fromAddr}, TO: ${JSON.stringify(toArray.map(a => {
+        const aRaw = typeof a === 'string' ? a : (a.email || a.address || "");
+        return extractEmailAddress(String(aRaw));
+      }))}, Contact emails: ${Array.from(contactEmailSet).join(", ")}`);
     }
     
     return false;
@@ -552,11 +701,13 @@ async function searchEmailsByContact(
     return dateB - dateA;
   });
 
-  return uniqueMessages.slice(0, limit);
+  // Return ALL unique messages (no limit slicing)
+  return uniqueMessages;
 }
 
 /**
  * Get full email content
+ * This fetches the complete email body (text and HTML) from Zoho Mail API
  */
 async function getEmailContent(
   folderId: string,
@@ -565,24 +716,43 @@ async function getEmailContent(
   apiBaseUrl: string,
   accountId?: string,
 ): Promise<{ text: string; html: string }> {
-  // Use correct endpoint format with account ID (or without if not available)
-  const url = accountId
-    ? `${apiBaseUrl}/accounts/${accountId}/folders/${folderId}/messages/${messageId}/content`
-    : `${apiBaseUrl}/folders/${folderId}/messages/${messageId}/content`;
+  // Use correct endpoint format with account ID (required for Zoho Mail API)
+  if (!accountId) {
+    throw new Error("Account ID is required to fetch email content");
+  }
+  
+  const url = `${apiBaseUrl}/accounts/${accountId}/folders/${folderId}/messages/${messageId}/content`;
 
   const response = await fetch(url, {
     headers: {
       Authorization: `Zoho-oauthtoken ${accessToken}`,
+      "Content-Type": "application/json",
     },
   });
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Failed to get email content: ${errorText}`);
+    console.error(`Failed to get email content for message ${messageId} in folder ${folderId}: ${response.status} - ${errorText}`);
+    throw new Error(`Failed to get email content (${response.status}): ${errorText.substring(0, 200)}`);
   }
 
   const data: ZohoEmailContentResponse = await response.json();
-  return data.data.content;
+  
+  // Handle different response structures
+  if (data?.data?.content) {
+    return {
+      text: data.data.content.text || "",
+      html: data.data.content.html || "",
+    };
+  } else if (data?.content) {
+    return {
+      text: data.content.text || "",
+      html: data.content.html || "",
+    };
+  } else {
+    console.warn(`Unexpected response structure for email content:`, JSON.stringify(data, null, 2));
+    return { text: "", html: "" };
+  }
 }
 
 Deno.serve(async (req) => {
@@ -688,7 +858,7 @@ Deno.serve(async (req) => {
     const userApiBaseUrl = ZOHO_API_BASE_URLS[userDataCenter] || ZOHO_API_BASE_URLS.us;
 
     if (req.method === "POST") {
-      const { contactEmails, limit = 50, includeContent = false } = await req.json();
+      const { contactEmails, limit = 10000, includeContent = false } = await req.json();
 
       if (!contactEmails || !Array.isArray(contactEmails) || contactEmails.length === 0) {
         return createErrorResponse(400, "contactEmails array is required");
@@ -730,26 +900,43 @@ Deno.serve(async (req) => {
           accountId,
         );
 
-        // Optionally fetch full content for each email
+        // Always fetch full content for each email (includeContent should be true)
+        console.log(`Fetching emails with includeContent=${includeContent}, total messages: ${messages.length}`);
+        
         // Normalize and format messages (handle different API response formats)
         const emailsWithContent = await Promise.all(
           messages.map(async (message: any) => {
             let content = { text: "", html: "" };
-            if (includeContent) {
-              const folderId = message.folderId || message.folder_id || message.folder?.id;
-              const messageId = message.messageId || message.id || message.message_id;
-              if (folderId && messageId) {
-                try {
-                  // Get account ID for content fetching
-                  const accountId = await getAccountId(zohoToken.access_token, userApiBaseUrl) || zohoToken.account_email;
-                  content = await getEmailContent(folderId, messageId, zohoToken.access_token, userApiBaseUrl, accountId);
-                } catch (error) {
-                  console.error(
-                    `Error fetching content for message ${messageId}:`,
-                    error,
-                  );
+            const folderId = message.folderId || message.folder_id || message.folder?.id;
+            const messageId = message.messageId || message.id || message.message_id;
+            
+            // Always try to fetch content if we have the required IDs
+            if (folderId && messageId) {
+              try {
+                // Use the accountId we already have (don't fetch it again)
+                content = await getEmailContent(folderId, messageId, zohoToken.access_token, userApiBaseUrl, accountId);
+                const hasContent = !!(content.text || content.html);
+                console.log(`Fetched content for message ${messageId}: hasText=${!!content.text}, hasHtml=${!!content.html}, length=${content.text?.length || 0}/${content.html?.length || 0}`);
+                
+                if (!hasContent) {
+                  console.warn(`Content fetched but empty for message ${messageId} in folder ${folderId}`);
                 }
+              } catch (error) {
+                console.error(
+                  `Error fetching content for message ${messageId} in folder ${folderId}:`,
+                  error instanceof Error ? error.message : String(error),
+                );
+                // Continue without content - we'll still return the email with snippet
+                // This ensures we don't lose emails if content fetching fails
               }
+            } else {
+              console.warn(`Missing folderId or messageId for message:`, { 
+                folderId, 
+                messageId, 
+                hasFolderId: !!folderId,
+                hasMessageId: !!messageId,
+                messageKeys: Object.keys(message)
+              });
             }
 
             // Normalize message structure according to Zoho Mail API response format
@@ -802,6 +989,10 @@ Deno.serve(async (req) => {
               emailDate = new Date().toISOString();
             }
             
+            // Always include content if we have it (even if empty strings)
+            // The frontend will check if content.text or content.html exist
+            const hasContent = !!(content.text || content.html);
+            
             return {
               messageId: String(message.messageId || message.id || message.message_id || ""),
               folderId: String(message.folderId || message.folder_id || message.folder?.id || ""),
@@ -817,7 +1008,9 @@ Deno.serve(async (req) => {
               date: emailDate,
               snippet: message.summary || message.snippet || message.Snippet || message.bodyPreview || message.body_preview || "",
               hasAttachments: message.hasAttachment === 1 || message.hasAttachment === true || message.hasAttachments === true || false,
-              content: includeContent ? content : undefined,
+              // Always include content object if we attempted to fetch it (even if empty)
+              // Frontend will check if content.text or content.html have actual values
+              content: hasContent ? content : (includeContent ? { text: "", html: "" } : undefined),
             };
           }),
         );

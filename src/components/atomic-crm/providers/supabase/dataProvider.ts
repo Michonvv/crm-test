@@ -279,8 +279,8 @@ const dataProviderWithCustomMethods = {
       headers,
       body: JSON.stringify({
         contactEmails,
-        limit: 50,
-        includeContent: false, // Only fetch content when needed (lazy loading)
+        limit: 10000, // Very high limit to get ALL emails (pagination is handled server-side)
+        includeContent: true, // Fetch full email content (text and HTML)
       }),
     });
 
@@ -408,6 +408,12 @@ export const dataProvider = withLifecycleCallbacks(
             created_at: new Date().toISOString(),
           },
         };
+      },
+      afterCreate: async (result) => {
+        // Note: Deal creation is handled by database trigger for consistency
+        // This callback is kept as a fallback but the trigger should handle it
+        // The trigger auto-creates a deal when a company is inserted
+        return result;
       },
       beforeUpdate: async (params) => {
         return await processCompanyLogo(params);

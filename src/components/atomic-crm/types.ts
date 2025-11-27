@@ -98,6 +98,7 @@ export type Contact = {
   status: string;
   background: string;
   phone_jsonb: PhoneNumberAndType[];
+  contact_source?: string;
   nb_tasks?: number;
   company_name?: string;
 } & Pick<RaRecord, "id">;

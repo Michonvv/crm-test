@@ -102,3 +102,4 @@ Make sure the redirect URI in your Zoho Developer Console matches:
 - Tokens are automatically refreshed before expiration
 - Client secret should NEVER be exposed in frontend code (only in Supabase secrets)
 
+

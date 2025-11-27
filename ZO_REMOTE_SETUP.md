@@ -55,3 +55,4 @@ If it still fails:
 2.  Watch these logs while you click "Connect" in the app.
 3.  If you see no logs, the frontend is hitting the wrong URL. Check the Network tab in your browser (F12).
 
+

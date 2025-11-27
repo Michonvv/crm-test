@@ -175,6 +175,13 @@ const ContactPersonalInformationInputs = () => {
 
 const personalInfoTypes = [{ id: "Work" }, { id: "Home" }, { id: "Other" }];
 
+const contactSourceChoices = [
+  { id: "email", name: "Email" },
+  { id: "facebook", name: "Facebook" },
+  { id: "website", name: "Website" },
+  { id: "found_self", name: "Found on website" },
+];
+
 const ContactMiscInputs = () => {
   return (
     <div className="flex flex-col gap-4">
@@ -184,6 +191,14 @@ const ContactMiscInputs = () => {
         label="Background info (bio, how you met, etc)"
         multiline
         helperText={false}
+      />
+      <SelectInput
+        source="contact_source"
+        label="Contact source"
+        helperText={false}
+        choices={contactSourceChoices}
+        optionText="name"
+        optionValue="id"
       />
       <BooleanInput source="has_newsletter" helperText={false} />
       <ReferenceInput

@@ -99,6 +99,18 @@ export const ContactAside = ({ link = "edit" }: { link?: "edit" | "show" }) => {
             ) : null
           }
         />
+        <WithRecord<Contact>
+          render={(record) =>
+            record?.contact_source ? (
+              <div className="text-muted-foreground pb-2">
+                <span className="text-sm">Contact source: </span>
+                <span className="text-sm font-medium capitalize">
+                  {record.contact_source.replace("_", " ")}
+                </span>
+              </div>
+            ) : null
+          }
+        />
         <div className="text-muted-foreground">
           <span className="text-sm">Added on</span>{" "}
           <DateField

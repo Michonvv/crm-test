@@ -43,3 +43,4 @@ create policy "Service role can manage Zoho tokens"
 alter table "public"."zoho_oauth_tokens" add constraint "zoho_oauth_tokens_sales_id_fkey" 
   FOREIGN KEY (sales_id) REFERENCES sales(id) ON UPDATE CASCADE ON DELETE CASCADE;
 
+
